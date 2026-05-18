@@ -1157,3 +1157,49 @@ body {
   min-width: 160px;
 }
 .shift-icon { font-size: 1rem; }
+
+/* ─── Botón deshabilitado (generar sin admin) ────────────────── */
+.btn-disabled {
+  background: var(--bg-4);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 8px 18px;
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: .82rem;
+  cursor: not-allowed;
+  letter-spacing: .03em;
+  opacity: .6;
+}
+
+/* ─── Cabecera fin de semana ─────────────────────────────────── */
+.cal-head-wknd { color: var(--text-dim); }
+
+/* ─── Celda con nombres: altura mínima mayor ─────────────────── */
+.cal-cell:not(.cell-weekend):not(.empty) {
+  min-height: 130px;
+}
+
+/* Asegura que cell-tech no se corte si el nombre es largo */
+.cell-tech {
+  font-size: .57rem;
+  font-family: var(--font-mono);
+  padding: 0 3px;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  cursor: default;
+}
+.morning-tech   { color: rgba(243,156,18,.85); }
+.afternoon-tech { color: rgba(79,142,247,.85); }
+
+/* Fin de semana más pequeño */
+.cell-weekend {
+  min-height: 40px !important;
+  opacity: .3;
+  cursor: default;
+}
+.cell-weekend:hover { border-color: var(--border) !important; background: var(--bg-2) !important; }
