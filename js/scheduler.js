@@ -1,159 +1,233 @@
 // ============================================================
-// scheduler.js — Aequitas WFM
-// Motor de optimización por asignación en cascada de 3 niveles
+// scheduler.js — Planificador de Turnos
+// Motor de asignación en cascada de 3 niveles
+// Reglas de festivos:
+//   closure  → servicio cerrado (nadie)
+//   national → 2 mañana + 2 tarde
+//   alicante → 4 mañana + 2 tarde
+//   normal   → todos mañana excepto pareja tarde
+// Solo lunes-viernes. Sáb/Dom: sin cuadrante.
 // ============================================================
 
 /**
+ * Detecta el tipo de festivo de una fecha.
+ * @returns 'closure' | 'national' | 'alicante' | null
+ */
+window.getHolidayType = function(dateStr, holidays) {
+  if (!holidays) return null;
+  if ((holidays.closure  || []).some(h => h.date === dateStr)) return 'closure';
+  if ((holidays.national || []).some(h => h.date === dateStr)) return 'national';
+  if ((holidays.alicante || []).some(h => h.date === dateStr)) return 'alicante';
+  return null;
+};
+
+/**
+ * Devuelve el nombre del festivo para cualquier categoría.
+ */
+window.getHolidayName = function(dateStr, holidays) {
+  if (!holidays) return null;
+  const all = [
+    ...(holidays.closure  || []),
+    ...(holidays.national || []),
+    ...(holidays.alicante || [])
+  ];
+  const found = all.find(h => h.date === dateStr);
+  return found ? found.name : null;
+};
+
+/**
+ * Indica si el día es festivo de cierre total.
+ */
+window.isGlobalHoliday = function(dateStr, holidays) {
+  return window.getHolidayType(dateStr, holidays) === 'closure';
+};
+
+/**
+ * Mezcla un array (Fisher-Yates) para variedad en la selección.
+ */
+function shuffled(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
  * Genera el cuadrante completo para un rango de semanas.
- * @param {Date[]} weeks     - Array de fechas de lunes
- * @param {Array}  users     - Lista de técnicos
- * @param {Object} vacations - Vacaciones indexadas por userId
- * @param {Object} holidays  - Festivos
- * @param {Object} config    - Configuración del motor
- * @returns { schedule: Object, contingencies: string[] }
+ * Solo genera días laborables (lun-vie).
  */
 window.generateSchedule = function(weeks, users, vacations, holidays, config) {
-  const schedule       = {};
-  const contingencies  = [];
+  const schedule      = {};
+  const contingencies = [];
 
-  // Penalizaciones acumuladas por técnico (para equidad)
-  const penalties       = {};
-  const afternoonCounts = {}; // total tardes del año
-  const lastAfternoonWeekIndex = {}; // índice de semana de última tarde
-  const monthAfternoonCount   = {}; // tardes por mes-año
+  // Contadores de equidad por técnico
+  const penalties              = {};
+  const lastAfternoonWeekIndex = {};
+  const monthAfternoonCount    = {};
 
   users.forEach(u => {
     penalties[u.id]              = 0;
-    afternoonCounts[u.id]        = 0;
     lastAfternoonWeekIndex[u.id] = -99;
     monthAfternoonCount[u.id]    = {};
   });
 
   weeks.forEach((monday, weekIdx) => {
-    const weekDays = window.getWeekDays(monday);
-    const monthKey = `${monday.getFullYear()}-${monday.getMonth()}`;
+    // Solo días lun-vie (índices 0-4 del array getWeekDays)
+    const weekDays    = window.getWeekDays(monday).slice(0, 5);
+    const mondayStr   = window.formatDateLocal(monday);
+    const monthKey    = `${monday.getFullYear()}-${monday.getMonth()}`;
 
-    // Determinar técnicos disponibles esta semana (ningún día de la semana en vacaciones continua)
-    const availableUsers = users.filter(u => {
-      // Un técnico está "no disponible" si está de vacaciones durante el lunes de esa semana
-      const mondayStr = window.formatDateLocal(monday);
-      return !window.isOnVacation(u.id, mondayStr, vacations);
-    });
+    // Disponibles esta semana (no de vacaciones el lunes)
+    const availableUsers = users.filter(u =>
+      !window.isOnVacation(u.id, mondayStr, vacations)
+    );
 
-    const seniors   = availableUsers.filter(u => u.profile === 'senior');
-    const standards = availableUsers.filter(u => u.profile === 'standard');
+    const seniors  = availableUsers.filter(u => u.profile === 'senior');
+    const juniors  = availableUsers.filter(u => u.profile === 'junior');
 
-    // ── Nivel 1: par óptimo Senior + Standard sin restricciones blandas violadas ──
+    // ── Seleccionar pareja de tarde para la semana (Nivel 1-3) ──
     let afternoonPair = null;
     let usedLevel     = 1;
 
-    const findBestPair = (seniorList, standardList, allowConsecutive = false, allowOverMonth = false) => {
-      let bestScore    = Infinity;
-      let bestSenior   = null;
-      let bestStandard = null;
-
-      for (const s of seniorList) {
-        if (!allowConsecutive && (weekIdx - lastAfternoonWeekIndex[s.id]) <= 1) continue;
-        if (!allowOverMonth) {
-          const mc = (monthAfternoonCount[s.id][monthKey] || 0);
-          if (mc >= config.algorithmWeights.afternoonCountMonthlyLimit) continue;
-        }
-        for (const st of standardList) {
-          if (!allowConsecutive && (weekIdx - lastAfternoonWeekIndex[st.id]) <= 1) continue;
-          if (!allowOverMonth) {
-            const mc = (monthAfternoonCount[st.id][monthKey] || 0);
-            if (mc >= config.algorithmWeights.afternoonCountMonthlyLimit) continue;
-          }
-          const score = (penalties[s.id] + penalties[st.id]) -
-                        config.algorithmWeights.seniorStandardBonus;
-          if (score < bestScore) {
-            bestScore    = score;
-            bestSenior   = s;
-            bestStandard = st;
-          }
+    const findBestPair = (senList, junList, allowConsec, allowOverMonth) => {
+      let best = Infinity, bs = null, bj = null;
+      for (const s of senList) {
+        if (!allowConsec && (weekIdx - lastAfternoonWeekIndex[s.id]) <= 1) continue;
+        if (!allowOverMonth && (monthAfternoonCount[s.id][monthKey] || 0) >= config.algorithmWeights.afternoonCountMonthlyLimit) continue;
+        for (const j of junList) {
+          if (!allowConsec && (weekIdx - lastAfternoonWeekIndex[j.id]) <= 1) continue;
+          if (!allowOverMonth && (monthAfternoonCount[j.id][monthKey] || 0) >= config.algorithmWeights.afternoonCountMonthlyLimit) continue;
+          const score = penalties[s.id] + penalties[j.id] - config.algorithmWeights.seniorStandardBonus;
+          if (score < best) { best = score; bs = s; bj = j; }
         }
       }
-      return (bestSenior && bestStandard) ? [bestSenior, bestStandard] : null;
+      return (bs && bj) ? [bs, bj] : null;
     };
 
-    // Nivel 1
-    afternoonPair = findBestPair(seniors, standards);
+    // Nivel 1: óptimo
+    afternoonPair = findBestPair(seniors, juniors, false, false);
 
-    // Nivel 2: romper restricción blanda de consecutivo
-    if (!afternoonPair && (seniors.length > 0 && standards.length > 0)) {
-      afternoonPair = findBestPair(seniors, standards, true, false);
+    // Nivel 2a: relajar consecutividad
+    if (!afternoonPair && seniors.length && juniors.length) {
+      afternoonPair = findBestPair(seniors, juniors, true, false);
       if (afternoonPair) {
         usedLevel = 2;
-        contingencies.push(`⚠ Semana ${window.formatDateLocal(monday)}: Nivel 2 activado — restricción de consecutividad relajada para ${afternoonPair.map(u => u.name).join(' + ')}.`);
+        contingencies.push(`⚠ Semana ${mondayStr}: restricción de consecutividad relajada (${afternoonPair.map(u=>u.name).join(' + ')}).`);
       }
     }
 
-    // Nivel 2b: romper límite mensual
-    if (!afternoonPair && (seniors.length > 0 && standards.length > 0)) {
-      afternoonPair = findBestPair(seniors, standards, true, true);
+    // Nivel 2b: relajar límite mensual
+    if (!afternoonPair && seniors.length && juniors.length) {
+      afternoonPair = findBestPair(seniors, juniors, true, true);
       if (afternoonPair) {
         usedLevel = 2;
-        contingencies.push(`⚠ Semana ${window.formatDateLocal(monday)}: Nivel 2 activado — límite mensual de tardes superado para ${afternoonPair.map(u => u.name).join(' + ')}.`);
+        contingencies.push(`⚠ Semana ${mondayStr}: límite mensual de tardes superado (${afternoonPair.map(u=>u.name).join(' + ')}).`);
       }
     }
 
-    // Nivel 3: cualquier pareja disponible
+    // Nivel 3: emergencia — cualquier pareja disponible
     if (!afternoonPair && availableUsers.length >= 2) {
       usedLevel = 3;
-      // Ordenar por menor penalización
       const sorted = [...availableUsers].sort((a, b) => penalties[a.id] - penalties[b.id]);
       afternoonPair = [sorted[0], sorted[1]];
-      contingencies.push(`🚨 Semana ${window.formatDateLocal(monday)}: Nivel 3 (Emergencia) — pareja no estándar: ${afternoonPair.map(u => u.name).join(' + ')}. Revisión manual recomendada.`);
+      contingencies.push(`🚨 Semana ${mondayStr}: Nivel 3 emergencia — pareja no estándar (${afternoonPair.map(u=>u.name).join(' + ')}). Revisión recomendada.`);
     }
 
     if (!afternoonPair) {
-      contingencies.push(`❌ Semana ${window.formatDateLocal(monday)}: Sin personal disponible suficiente. Semana sin cuadrante de tarde.`);
+      contingencies.push(`❌ Semana ${mondayStr}: sin personal suficiente para turno de tarde.`);
       afternoonPair = [];
     }
 
     const afternoonIds = afternoonPair.map(u => u.id);
 
-    // Actualizar contadores
+    // Actualizar contadores de equidad
     afternoonPair.forEach(u => {
       penalties[u.id]              += config.algorithmWeights.consecutiveAfternoonPenalty * usedLevel;
-      afternoonCounts[u.id]        += 1;
       lastAfternoonWeekIndex[u.id]  = weekIdx;
       if (!monthAfternoonCount[u.id][monthKey]) monthAfternoonCount[u.id][monthKey] = 0;
       monthAfternoonCount[u.id][monthKey]++;
     });
 
-    // Asignar cada día de la semana
+    // ── Asignar cada día laborable ──────────────────────────────
     weekDays.forEach(day => {
-      const dateStr  = window.formatDateLocal(day);
-      const isGlobal = window.isGlobalHoliday(dateStr, holidays);
+      const dateStr   = window.formatDateLocal(day);
+      const holType   = window.getHolidayType(dateStr, holidays);
+      const holName   = window.getHolidayName(dateStr, holidays);
 
-      if (isGlobal) {
-        // Festivo global: cierre de servicio
+      // Cierre total
+      if (holType === 'closure') {
+        schedule[dateStr] = { morning: [], afternoon: [], closed: true, holidayType: 'closure', holiday: holName };
+        return;
+      }
+
+      // Técnicos disponibles ese día concreto (no de vacaciones)
+      const dayAvailable = availableUsers.filter(u =>
+        !window.isOnVacation(u.id, dateStr, vacations)
+      );
+
+      if (holType === 'national') {
+        // Festivo nacional: 2 mañana + 2 tarde
+        // Seleccionar 2 para tarde (prioritariamente la pareja semanal si disponible)
+        const aftCandidates = dayAvailable.filter(u => afternoonIds.includes(u.id));
+        const morCandidates = dayAvailable.filter(u => !afternoonIds.includes(u.id));
+
+        // Tarde: la pareja semanal si están disponibles, si no rellenar desde resto
+        let aftDay = aftCandidates.slice(0, 2);
+        if (aftDay.length < 2) {
+          const extra = dayAvailable.filter(u => !aftDay.map(x=>x.id).includes(u.id));
+          aftDay = aftDay.concat(extra).slice(0, 2);
+        }
+        const aftDayIds = aftDay.map(u => u.id);
+
+        // Mañana: 2 personas de las restantes
+        const morPool = dayAvailable.filter(u => !aftDayIds.includes(u.id));
+        const morDay  = morPool.slice(0, 2);
+
         schedule[dateStr] = {
-          morning:   [],
-          afternoon: [],
-          closed:    true,
-          holiday:   window.getHolidayName(dateStr, holidays)
+          morning:     morDay.map(u => u.id),
+          afternoon:   aftDayIds,
+          closed:      false,
+          holidayType: 'national',
+          holiday:     holName
         };
         return;
       }
 
-      // Técnicos de mañana: los disponibles ese día que NO están en tarde
-      const morningUsers = availableUsers.filter(u => {
-        if (afternoonIds.includes(u.id)) return false;
-        return !window.isOnVacation(u.id, dateStr, vacations);
-      });
+      if (holType === 'alicante') {
+        // Festivo Alicante/CV: 4 mañana + 2 tarde
+        const aftCandidates = dayAvailable.filter(u => afternoonIds.includes(u.id));
+        let aftDay = aftCandidates.slice(0, 2);
+        if (aftDay.length < 2) {
+          const extra = dayAvailable.filter(u => !aftDay.map(x=>x.id).includes(u.id));
+          aftDay = aftDay.concat(extra).slice(0, 2);
+        }
+        const aftDayIds = aftDay.map(u => u.id);
 
-      // Técnicos de tarde: los del par, solo si no están de vacaciones ese día
-      const afternoonUsers = afternoonPair.filter(u =>
-        !window.isOnVacation(u.id, dateStr, vacations)
-      );
+        const morPool = dayAvailable.filter(u => !aftDayIds.includes(u.id));
+        const morDay  = morPool.slice(0, 4);
+
+        schedule[dateStr] = {
+          morning:     morDay.map(u => u.id),
+          afternoon:   aftDayIds,
+          closed:      false,
+          holidayType: 'alicante',
+          holiday:     holName
+        };
+        return;
+      }
+
+      // Día normal
+      const morningUsers   = dayAvailable.filter(u => !afternoonIds.includes(u.id));
+      const afternoonUsers = afternoonPair.filter(u => !window.isOnVacation(u.id, dateStr, vacations));
 
       schedule[dateStr] = {
-        morning:   morningUsers.map(u => u.id),
-        afternoon: afternoonUsers.map(u => u.id),
-        closed:    false,
-        holiday:   window.getHolidayName(dateStr, holidays)
+        morning:     morningUsers.map(u => u.id),
+        afternoon:   afternoonUsers.map(u => u.id),
+        closed:      false,
+        holidayType: null,
+        holiday:     null
       };
     });
   });

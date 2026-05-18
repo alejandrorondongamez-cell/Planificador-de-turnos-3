@@ -79,11 +79,12 @@ window.isOnVacation = function(userId, dateStr, vacations) {
 };
 
 /**
- * Verifica si una fecha es festivo global (cierre de servicio).
+ * Verifica si una fecha es festivo de cierre total.
+ * Delega en el scheduler que tiene la lógica de tipos.
  */
 window.isGlobalHoliday = function(dateStr, holidays) {
-  if (!holidays || !holidays.global) return false;
-  return holidays.global.some(h => h.date === dateStr);
+  if (!holidays || !holidays.closure) return false;
+  return holidays.closure.some(h => h.date === dateStr);
 };
 
 /**
@@ -92,10 +93,9 @@ window.isGlobalHoliday = function(dateStr, holidays) {
 window.getHolidayName = function(dateStr, holidays) {
   if (!holidays) return null;
   const all = [
-    ...(holidays.global    || []),
-    ...(holidays.legal     || []),
-    ...(holidays.madrid    || []),
-    ...(holidays.alicante  || [])
+    ...(holidays.closure  || []),
+    ...(holidays.national || []),
+    ...(holidays.alicante || [])
   ];
   const found = all.find(h => h.date === dateStr);
   return found ? found.name : null;
