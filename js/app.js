@@ -1,6 +1,11 @@
 // ============================================================
-// app.js — Planificador de Turnos
-// Antídotos #1-5 aplicados. Ver comentarios inline.
+// app.js — Planificador de Turnos v2.1
+// CORRECCIONES:
+//  - Perfiles (senior/junior) NUNCA visibles en UI
+//  - Calendas: técnicos visibles siempre, sin requerir admin
+//  - Generar cuadrante: solo en modo administrador
+//  - Solo lunes-viernes generados, sáb/dom grises sin datos
+//  - Festivos correctamente diferenciados (closure/national/alicante)
 // ============================================================
 
 window.APP = {
@@ -81,7 +86,7 @@ function renderApp() {
     case 'settings':   root.innerHTML = renderSettingsView();   break;
     default:           root.innerHTML = renderDashboard();
   }
-  bindViewEvents();
+  requestAnimationFrame(setupTooltips);
 }
 
 // ─── Helpers UI ──────────────────────────────────────────────
@@ -90,17 +95,33 @@ function userName(id) {
   return u ? u.name : String(id);
 }
 
-function initials(name) {
-  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+// Primer nombre + primera letra del apellido: "Alejandro G."
+function shortName(id) {
+  const u = APP.users.find(u => u.id === id);
+  if (!u) return String(id);
+  const parts = u.name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  return parts[0] + ' ' + parts[1][0] + '.';
 }
 
-// Tooltip global: posiciona y muestra/oculta
+function initials(name) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+// ─── Tooltip global ──────────────────────────────────────────
 function setupTooltips() {
   const tip = document.getElementById('global-tooltip');
   if (!tip) return;
+  // Limpiar listeners previos clonando nodos
+  document.querySelectorAll('[data-tip]').forEach(el => {
+    const clone = el.cloneNode(true);
+    el.parentNode.replaceChild(clone, el);
+  });
   document.querySelectorAll('[data-tip]').forEach(el => {
     el.addEventListener('mouseenter', function(e) {
-      tip.innerHTML = this.dataset.tip;
+      tip.innerHTML = this.dataset.tip.replace(/\\n/g, '<br>');
       tip.classList.add('tip-visible');
       positionTip(e, tip);
     });
@@ -110,37 +131,31 @@ function setupTooltips() {
 }
 
 function positionTip(e, tip) {
-  const x = e.clientX + 12;
-  const y = e.clientY + 16;
-  const vw = window.innerWidth;
-  const tipW = 220;
-  tip.style.left = (x + tipW > vw ? x - tipW - 16 : x) + 'px';
+  const x = e.clientX + 14, y = e.clientY + 18;
+  const vw = window.innerWidth, tipW = 240;
+  tip.style.left = (x + tipW > vw ? x - tipW - 20 : x) + 'px';
   tip.style.top  = y + 'px';
-}
-
-function bindViewEvents() {
-  // Llamar siempre tras renderizar
-  requestAnimationFrame(setupTooltips);
 }
 
 // ─── DASHBOARD ───────────────────────────────────────────────
 function renderDashboard() {
-  const today     = window.formatDateLocal(new Date());
-  const todayData = APP.schedule[today] || null;
-  const totalDays = Object.keys(APP.schedule).length;
-  const vacEntries= Object.values(APP.vacations).flat().length;
-  const onVacToday= APP.users.filter(u => window.isOnVacation(u.id, today, APP.vacations));
-  const holType   = window.getHolidayType(today, APP.holidays);
-  const holName   = window.getHolidayName(today, APP.holidays);
+  const today      = window.formatDateLocal(new Date());
+  const todayData  = APP.schedule[today] || null;
+  const totalDays  = Object.keys(APP.schedule).length;
+  const vacEntries = Object.values(APP.vacations).flat().length;
+  const onVacToday = APP.users.filter(u => window.isOnVacation(u.id, today, APP.vacations));
+  const holType    = window.getHolidayType ? window.getHolidayType(today, APP.holidays) : null;
+  const holName    = window.getHolidayName(today, APP.holidays);
   const closedToday = todayData && todayData.closed;
+  const dow         = new Date().getDay();
+  const isWeekend   = (dow === 0 || dow === 6);
 
-  // Cuadrante de hoy
+  // ── Cuadrante de hoy ──
   let todayCard = '';
-  if (closedToday) {
-    todayCard = `<div class="today-card closed">
-      <div class="closed-icon">🔒</div>
-      <div class="closed-text">Servicio cerrado — ${holName || 'Festivo'}</div>
-    </div>`;
+  if (isWeekend) {
+    todayCard = `<div class="today-card closed"><div class="closed-icon">📅</div><div class="closed-text">Fin de semana — sin servicio</div></div>`;
+  } else if (closedToday) {
+    todayCard = `<div class="today-card closed"><div class="closed-icon">🔒</div><div class="closed-text">Servicio cerrado — ${holName || 'Festivo'}</div></div>`;
   } else if (todayData) {
     const mNames = (todayData.morning   || []).map(id => userName(id));
     const aNames = (todayData.afternoon || []).map(id => userName(id));
@@ -149,43 +164,35 @@ function renderDashboard() {
       <div class="today-card">
         ${badge}
         <div class="shift-row">
-          <div class="shift-label morning-label">
-            <span class="shift-icon">☀</span>
-            <span>Mañana <span class="shift-time">08:00 – 17:00</span></span>
-          </div>
+          <div class="shift-label morning-label"><span class="shift-icon">☀</span><span>Mañana <span class="shift-time">08:00–17:00</span></span></div>
           <div class="tech-chips">${mNames.map(n => `<span class="chip">${n}</span>`).join('') || '<span class="chip empty">Sin asignar</span>'}</div>
         </div>
         <div class="shift-row">
-          <div class="shift-label afternoon-label">
-            <span class="shift-icon">🌙</span>
-            <span>Tarde <span class="shift-time">15:00 – 24:00</span></span>
-          </div>
+          <div class="shift-label afternoon-label"><span class="shift-icon">🌙</span><span>Tarde <span class="shift-time">15:00–24:00</span></span></div>
           <div class="tech-chips">${aNames.map(n => `<span class="chip chip-afternoon">${n}</span>`).join('') || '<span class="chip empty">Sin asignar</span>'}</div>
         </div>
       </div>`;
   } else {
-    const dow = new Date().getDay();
-    if (dow === 0 || dow === 6) {
-      todayCard = `<div class="today-card closed"><div class="closed-icon">📅</div><div class="closed-text">Fin de semana — sin servicio</div></div>`;
-    } else {
-      todayCard = `<div class="today-card empty-state"><p>Sin cuadrante generado para hoy.</p><button class="btn-primary" onclick="navigateTo('schedule')">Ir al Planificador</button></div>`;
-    }
+    todayCard = `<div class="today-card empty-state"><p>Sin cuadrante generado para hoy.</p><button class="btn-primary" onclick="navigateTo('schedule')">Ir al Planificador</button></div>`;
   }
 
-  // Grid equipo — sin mostrar perfil
+  // ── Grid equipo: sin estrella, sin perfil visible ──
   const teamGrid = APP.users.map(u => {
     const onVac  = window.isOnVacation(u.id, today, APP.vacations);
     const used   = window.getVacationDaysUsed(u.id, APP.vacations);
     const pct    = Math.min(100, Math.round((used / u.vacationDaysTotal) * 100));
     const status = onVac ? 'vacation' : (closedToday ? 'holiday' : 'working');
-    const statusLabel = { vacation: '🏖', holiday: '🔒', working: '✓ Activo' }[status];
-    const statusText  = { vacation: 'Vacaciones', holiday: 'Festivo', working: 'Activo' }[status];
 
-    // Vacaciones próximas
     const nextVac = (APP.vacations[u.id] || [])
       .filter(v => window.parseLocalDate(v.end) >= new Date())
-      .sort((a,b) => a.start.localeCompare(b.start))[0];
-    const vacTip = nextVac ? `Próximas vacaciones: ${nextVac.start} → ${nextVac.end}` : 'Sin vacaciones próximas';
+      .sort((a, b) => a.start.localeCompare(b.start))[0];
+    const vacTip = nextVac
+      ? `Próximas vacaciones:\n${nextVac.start} → ${nextVac.end}`
+      : 'Sin vacaciones próximas registradas';
+
+    const statusEl = onVac
+      ? `<span class="status-badge status-vacation" data-tip="${vacTip}">🏖 Vacaciones</span>`
+      : `<span class="status-badge status-${status}">${status === 'working' ? '✓ Activo' : '🔒 Festivo'}</span>`;
 
     return `
       <div class="team-member ${status}">
@@ -195,12 +202,7 @@ function renderDashboard() {
           <div class="vac-bar-wrap"><div class="vac-bar" style="width:${pct}%"></div></div>
           <div class="vac-label">${used}/${u.vacationDaysTotal} días vacaciones</div>
         </div>
-        <div class="member-status-col">
-          ${onVac
-            ? `<span class="status-badge status-vacation" data-tip="${vacTip}">🏖 ${onVac ? used : ''}</span>`
-            : `<span class="status-badge status-${status}">${statusLabel}</span>`
-          }
-        </div>
+        <div class="member-status-col">${statusEl}</div>
       </div>`;
   }).join('');
 
@@ -210,26 +212,10 @@ function renderDashboard() {
       <p class="view-sub">Visión general del equipo IT — ${today}</p>
     </div>
     <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-icon">📅</div>
-        <div class="stat-value">${totalDays}</div>
-        <div class="stat-label">Días planificados</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">👥</div>
-        <div class="stat-value">${APP.users.length}</div>
-        <div class="stat-label">Técnicos activos</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">🌴</div>
-        <div class="stat-value">${vacEntries}</div>
-        <div class="stat-label">Periodos vacacionales</div>
-      </div>
-      <div class="stat-card ${onVacToday.length > 0 ? 'stat-warning' : ''}">
-        <div class="stat-icon">🏖</div>
-        <div class="stat-value">${onVacToday.length}</div>
-        <div class="stat-label">De vacaciones hoy</div>
-      </div>
+      <div class="stat-card"><div class="stat-icon">📅</div><div class="stat-value">${totalDays}</div><div class="stat-label">Días planificados</div></div>
+      <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value">${APP.users.length}</div><div class="stat-label">Técnicos activos</div></div>
+      <div class="stat-card"><div class="stat-icon">🌴</div><div class="stat-value">${vacEntries}</div><div class="stat-label">Periodos vacacionales</div></div>
+      <div class="stat-card ${onVacToday.length > 0 ? 'stat-warning' : ''}"><div class="stat-icon">🏖</div><div class="stat-value">${onVacToday.length}</div><div class="stat-label">De vacaciones hoy</div></div>
     </div>
     <section class="section-card">
       <h2 class="section-title">Cuadrante de Hoy</h2>
@@ -244,13 +230,18 @@ function renderDashboard() {
 // ─── SCHEDULE VIEW ───────────────────────────────────────────
 function renderScheduleView() {
   const today = new Date();
+  // El botón de generar solo aparece en admin; exportar siempre disponible
+  const genBtn = APP.isAdmin
+    ? `<button class="btn-primary" onclick="openGeneratorRangeModal()">⚡ Generar Cuadrante Automático</button>`
+    : `<button class="btn-disabled" data-tip="Requiere modo administrador para generar cuadrantes" disabled>🔒 Generar Cuadrante Automático</button>`;
+
   return `
     <div class="view-header">
       <h1 class="view-title">Planificador de Cuadrantes</h1>
-      <p class="view-sub">Generación automática y edición manual de turnos</p>
+      <p class="view-sub">Visualización del cuadrante — edición y generación requieren modo Administrador</p>
     </div>
     <div class="toolbar">
-      <button class="btn-primary" onclick="openGeneratorRangeModal()">⚡ Generar Cuadrante Automático</button>
+      ${genBtn}
       <button class="btn-secondary" onclick="window.exportScheduleCSV(APP.schedule, APP.users)">⬇ Exportar CSV</button>
     </div>
     <div class="month-navigator">
@@ -261,12 +252,12 @@ function renderScheduleView() {
     <div id="schedule-calendar-wrap">
       ${renderCalendar(today.getFullYear(), today.getMonth())}
     </div>
-    <!-- Modal Generador -->
+    <!-- Modal Generador (solo admin) -->
     <div id="modal-generator" class="modal hidden">
       <div class="modal-backdrop" onclick="closeGeneratorModal()"></div>
       <div class="modal-box">
         <h3 class="modal-title">Generar Cuadrante Automático</h3>
-        <p class="modal-desc">Rango de fechas para el motor de asignación en cascada. Solo se generan días laborables (lun–vie).</p>
+        <p class="modal-desc">Solo días laborables lun–vie. Los festivos se aplican según su categoría.</p>
         <div class="form-row"><label>Fecha Inicio</label><input type="date" id="gen-start" value="2026-01-01"></div>
         <div class="form-row"><label>Fecha Fin</label><input type="date" id="gen-end" value="2026-12-31"></div>
         <div class="form-row checkbox-row">
@@ -279,7 +270,7 @@ function renderScheduleView() {
         </div>
       </div>
     </div>
-    <!-- Modal edición día -->
+    <!-- Modal edición día (solo admin) -->
     <div id="modal-edit-day" class="modal hidden">
       <div class="modal-backdrop" onclick="closeEditDayModal()"></div>
       <div class="modal-box" id="edit-day-content"></div>
@@ -312,7 +303,9 @@ function renderCalendar(year, month) {
 
   let html = `<div class="calendar-grid">
     <div class="cal-header-row">
-      ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d => `<div class="cal-head">${d}</div>`).join('')}
+      ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map((d,i) =>
+        `<div class="cal-head ${i>=5 ? 'cal-head-wknd' : ''}">${d}</div>`
+      ).join('')}
     </div>
     <div class="cal-body">`;
 
@@ -324,64 +317,87 @@ function renderCalendar(year, month) {
     const holType = window.getHolidayType(dateStr, APP.holidays);
     const holName = window.getHolidayName(dateStr, APP.holidays);
     const isToday = dateStr === window.formatDateLocal(new Date());
-    const dow     = window.parseLocalDate(dateStr).getDay(); // 0=Dom,6=Sáb
+    const dow     = window.parseLocalDate(dateStr).getDay();
     const isWknd  = (dow === 0 || dow === 6);
 
+    // Clases de celda
     let cellClass = 'cal-cell';
-    if (holType === 'closure')   cellClass += ' cell-closure';
-    else if (holType === 'national') cellClass += ' cell-national';
-    else if (holType === 'alicante') cellClass += ' cell-alicante';
-    else if (isWknd)             cellClass += ' cell-weekend';
+    if (isWknd)                  cellClass += ' cell-weekend';
+    else if (holType==='closure')  cellClass += ' cell-closure';
+    else if (holType==='national') cellClass += ' cell-national';
+    else if (holType==='alicante') cellClass += ' cell-alicante';
     if (isToday)                 cellClass += ' cell-today';
 
     let content = '';
 
-    if (holType === 'closure') {
-      content = `<div class="cell-hol-row"><span class="cell-hol-ico">🔒</span><span class="cell-hol-name">${holName}</span></div>`;
-    } else if (isWknd) {
-      content = `<div class="cell-weekend-label">Fin de semana</div>`;
+    if (isWknd) {
+      // Fin de semana: celda ténue sin datos
+      content = '';
+    } else if (holType === 'closure') {
+      content = `<div class="cell-hol-row">
+        <span class="cell-hol-ico">🔒</span>
+        <span class="cell-hol-name">${holName}</span>
+      </div>`;
     } else if (dayData) {
+      // ── DÍA CON DATOS: siempre visible, sin requerir admin ──
       const mIds = dayData.morning   || [];
       const aIds = dayData.afternoon || [];
-      const mNames = mIds.map(id => userName(id)).join('\n');
-      const aNames = aIds.map(id => userName(id)).join('\n');
 
-      // Técnicos de vacaciones ese día
-      const onVacNames = APP.users
-        .filter(u => window.isOnVacation(u.id, dateStr, APP.vacations))
-        .map(u => u.name).join('\n');
+      // Vacacionistas ese día
+      const vacUsers = APP.users.filter(u => window.isOnVacation(u.id, dateStr, APP.vacations));
+      const vacCount = vacUsers.length;
+      const vacTipContent = vacUsers.map(u => u.name).join('&#10;');
 
-      const holBadge = holType ? `<span class="cell-hol-tag hol-${holType}" data-tip="${holName}">${holType === 'alicante' ? '🎆' : '🇪🇸'}</span>` : '';
-
-      // Nombres mañana truncados para caber en celda
-      const mList = mIds.map(id => {
-        const n = userName(id); return `<div class="cell-tech morning-tech">${n.split(' ')[0]}</div>`;
-      }).join('');
-      const aList = aIds.map(id => {
-        const n = userName(id); return `<div class="cell-tech afternoon-tech">${n.split(' ')[0]}</div>`;
-      }).join('');
-
-      const vacIcon = onVacNames
-        ? `<span class="cell-vac-ico" data-tip="De vacaciones:\n${onVacNames}">🏖 ${APP.users.filter(u=>window.isOnVacation(u.id,dateStr,APP.vacations)).length}</span>`
+      // Badge festivo
+      const holBadge = holType
+        ? `<span class="cell-hol-tag hol-${holType}" data-tip="${holName}">${holType==='alicante'?'🎆':'🇪🇸'}</span>`
+        : '';
+      const vacBadge = vacCount > 0
+        ? `<span class="cell-vac-ico" data-tip="De vacaciones:&#10;${vacTipContent}">🏖${vacCount}</span>`
+        : '';
+      const warnBadge = (!dayData.closed && (mIds.length < 2 || aIds.length < 2))
+        ? `<span class="cell-warn" data-tip="Cobertura insuficiente">⚠</span>`
         : '';
 
-      const warn = (mIds.length < 2 || aIds.length < 2) ? `<span class="cell-warn" data-tip="Cobertura insuficiente">⚠</span>` : '';
+      // Lista de nombres mañana
+      const mList = mIds.map(id =>
+        `<div class="cell-tech morning-tech" data-tip="${userName(id)}">${shortName(id)}</div>`
+      ).join('');
+      // Lista de nombres tarde
+      const aList = aIds.map(id =>
+        `<div class="cell-tech afternoon-tech" data-tip="${userName(id)}">${shortName(id)}</div>`
+      ).join('');
+
+      // Tooltip del bloque sol/luna con lista completa
+      const mAllNames = mIds.map(id => userName(id)).join('&#10;') || 'Sin asignar';
+      const aAllNames = aIds.map(id => userName(id)).join('&#10;') || 'Sin asignar';
 
       content = `
-        <div class="cell-meta-row">${holBadge}${vacIcon}${warn}</div>
+        <div class="cell-meta-row">${holBadge}${vacBadge}${warnBadge}</div>
         <div class="cell-shift-block">
-          <div class="cell-shift-hdr morning-hdr" data-tip="☀ Mañana (08-17):\n${mNames || 'Sin asignar'}">☀ <span class="cell-shift-count">${mIds.length}</span></div>
+          <div class="cell-shift-hdr morning-hdr" data-tip="☀ Mañana (08-17):&#10;${mAllNames}">
+            ☀ <span class="cell-shift-count">${mIds.length}</span>
+          </div>
           ${mList}
         </div>
         <div class="cell-shift-block">
-          <div class="cell-shift-hdr afternoon-hdr" data-tip="🌙 Tarde (15-24):\n${aNames || 'Sin asignar'}">🌙 <span class="cell-shift-count">${aIds.length}</span></div>
+          <div class="cell-shift-hdr afternoon-hdr" data-tip="🌙 Tarde (15-24):&#10;${aAllNames}">
+            🌙 <span class="cell-shift-count">${aIds.length}</span>
+          </div>
           ${aList}
         </div>`;
     } else {
+      // Día laborable sin datos generados
       content = `<div class="cell-no-data">Sin datos</div>`;
     }
 
-    const clickable = !isWknd && holType !== 'closure' ? `onclick="openEditDayModal('${dateStr}')"` : '';
+    // Click para editar solo si es admin y día laborable no cerrado
+    const clickable = (!isWknd && holType !== 'closure' && APP.isAdmin)
+      ? `onclick="openEditDayModal('${dateStr}')"`
+      : (!isWknd && holType !== 'closure' && !APP.isAdmin)
+        ? `onclick="window.showToast('Activa el modo Administrador para editar.','warning')"`
+        : '';
+
     html += `<div class="${cellClass}" ${clickable}><div class="cell-day-num">${d}</div>${content}</div>`;
   }
 
@@ -389,7 +405,9 @@ function renderCalendar(year, month) {
   return html;
 }
 
+// ── Generator: solo admin ──
 window.openGeneratorRangeModal = function() {
+  if (!APP.isAdmin) { window.showToast('Requiere modo Administrador.', 'warning'); return; }
   document.getElementById('modal-generator').classList.remove('hidden');
 };
 window.closeGeneratorModal = function() {
@@ -397,6 +415,7 @@ window.closeGeneratorModal = function() {
 };
 
 window.executeAutoGenerate = function() {
+  if (!APP.isAdmin) { window.showToast('Requiere modo Administrador.', 'warning'); return; }
   const startStr  = document.getElementById('gen-start').value;
   const endStr    = document.getElementById('gen-end').value;
   const overwrite = document.getElementById('gen-overwrite').checked;
@@ -405,20 +424,21 @@ window.executeAutoGenerate = function() {
   const weeks = window.getWeeksInRange(startStr, endStr);
   if (weeks.length === 0) { window.showToast('Rango de fechas inválido.', 'error'); return; }
 
-  const { schedule, contingencies } = window.generateSchedule(weeks, APP.users, APP.vacations, APP.holidays, APP.config);
+  const { schedule, contingencies } = window.generateSchedule(
+    weeks, APP.users, APP.vacations, APP.holidays, APP.config
+  );
 
   if (overwrite) APP.schedule = schedule;
   else Object.assign(APP.schedule, schedule);
 
   window.saveScheduleLocal(APP.schedule);
-  window.appendAuditEntry('AUTO_GENERATE', `${startStr}→${endStr}`, 'all', null, null, APP.isAdmin ? 'Admin' : 'Sistema');
-
+  window.appendAuditEntry('AUTO_GENERATE', `${startStr}→${endStr}`, 'all', null, null, 'Admin');
   closeGeneratorModal();
 
   const workDays = Object.keys(schedule).length;
   let msg = `✅ Cuadrante generado: ${workDays} días laborables planificados.`;
   if (contingencies.length > 0) {
-    msg += `\n\n⚠ ${contingencies.length} semanas con ajuste manual recomendado:\n\n` + contingencies.join('\n');
+    msg += `\n\n⚠ ${contingencies.length} semanas con ajuste:\n\n` + contingencies.join('\n');
     alert(msg);
   } else {
     window.showToast(msg, 'success', 4000);
@@ -426,19 +446,17 @@ window.executeAutoGenerate = function() {
   renderApp();
 };
 
+// ── Edición manual: solo admin ──
 window.openEditDayModal = function(dateStr) {
-  if (!APP.isAdmin) {
-    window.showToast('Acceso de administrador requerido para editar el cuadrante.', 'warning');
-    return;
-  }
+  if (!APP.isAdmin) { window.showToast('Activa el modo Administrador para editar.', 'warning'); return; }
   const dayData = APP.schedule[dateStr] || { morning: [], afternoon: [], closed: false };
   const d = window.parseLocalDate(dateStr);
-  const title = `${window.dayNameFull(d.getDay())} ${d.getDate()} de ${window.monthName(d.getMonth())} de ${d.getFullYear()}`;
+  const title = `${window.dayNameFull(d.getDay())} ${d.getDate()} ${window.monthName(d.getMonth())} ${d.getFullYear()}`;
 
-  const userChecks = (shift) => APP.users.map(u => {
-    const checked = (dayData[shift] || []).includes(u.id) ? 'checked' : '';
+  const checks = (shift) => APP.users.map(u => {
+    const on = (dayData[shift] || []).includes(u.id) ? 'checked' : '';
     return `<label class="check-label">
-      <input type="checkbox" data-uid="${u.id}" data-shift="${shift}" ${checked}>
+      <input type="checkbox" data-uid="${u.id}" data-shift="${shift}" ${on}>
       <span class="check-tech">${u.name}</span>
     </label>`;
   }).join('');
@@ -448,11 +466,11 @@ window.openEditDayModal = function(dateStr) {
     <div class="form-row checkbox-row">
       <input type="checkbox" id="day-closed" ${dayData.closed ? 'checked' : ''}
              onchange="document.getElementById('shift-editor').style.display=this.checked?'none':''">
-      <label for="day-closed">🔒 Cierre de servicio (festivo)</label>
+      <label for="day-closed">🔒 Cierre de servicio</label>
     </div>
     <div id="shift-editor" ${dayData.closed ? 'style="display:none"' : ''}>
-      <div class="shift-editor-col"><h4>☀ Mañana</h4><div class="checkboxes-list">${userChecks('morning')}</div></div>
-      <div class="shift-editor-col"><h4>🌙 Tarde</h4><div class="checkboxes-list">${userChecks('afternoon')}</div></div>
+      <div class="shift-editor-col"><h4>☀ Mañana</h4><div class="checkboxes-list">${checks('morning')}</div></div>
+      <div class="shift-editor-col"><h4>🌙 Tarde</h4><div class="checkboxes-list">${checks('afternoon')}</div></div>
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeEditDayModal()">Cerrar</button>
@@ -464,24 +482,24 @@ window.openEditDayModal = function(dateStr) {
 window.saveDayEdits = function(dateStr) {
   const isClosed = document.getElementById('day-closed').checked;
   if (isClosed) {
-    APP.schedule[dateStr] = { morning: [], afternoon: [], closed: true, holidayType: 'closure', holiday: 'Manual' };
+    APP.schedule[dateStr] = { morning:[], afternoon:[], closed:true, holidayType:'closure', holiday:'Manual' };
   } else {
-    const mIds = [], aIds = [];
+    const mIds=[], aIds=[];
     document.querySelectorAll('[data-shift="morning"]:checked').forEach(cb => mIds.push(parseInt(cb.dataset.uid)));
     document.querySelectorAll('[data-shift="afternoon"]:checked').forEach(cb => aIds.push(parseInt(cb.dataset.uid)));
-    APP.schedule[dateStr] = { morning: mIds, afternoon: aIds, closed: false, holidayType: null, holiday: window.getHolidayName(dateStr, APP.holidays) };
+    APP.schedule[dateStr] = { morning:mIds, afternoon:aIds, closed:false,
+      holidayType: window.getHolidayType ? window.getHolidayType(dateStr, APP.holidays) : null,
+      holiday: window.getHolidayName(dateStr, APP.holidays) };
   }
   window.saveScheduleLocal(APP.schedule);
   window.appendAuditEntry('MANUAL_EDIT', dateStr, 'all', null, null, 'Admin');
   closeEditDayModal();
   const wrap = document.getElementById('schedule-calendar-wrap');
   if (wrap) { wrap.innerHTML = renderCalendar(window._scheduleYear, window._scheduleMonth); requestAnimationFrame(setupTooltips); }
-  window.showToast(`Cambios guardados para ${dateStr}.`, 'success');
+  window.showToast(`Guardado: ${dateStr}`, 'success');
 };
 
-window.closeEditDayModal = function() {
-  document.getElementById('modal-edit-day').classList.add('hidden');
-};
+window.closeEditDayModal = function() { document.getElementById('modal-edit-day').classList.add('hidden'); };
 
 // ─── VACATIONS VIEW ──────────────────────────────────────────
 function renderVacationsView() {
@@ -501,17 +519,15 @@ function renderVacationsView() {
           ${APP.isAdmin ? `<button class="btn-add" onclick="openAddVacModal(${u.id})">+ Añadir</button>` : ''}
         </div>
         <div class="vac-list">
-          ${vacs.length === 0
-            ? '<p class="empty-vac">Sin periodos registrados.</p>'
+          ${vacs.length === 0 ? '<p class="empty-vac">Sin periodos registrados.</p>'
             : vacs.map((v, i) => {
-                const days = Math.round((window.parseLocalDate(v.end) - window.parseLocalDate(v.start)) / 86400000) + 1;
+                const days = Math.round((window.parseLocalDate(v.end)-window.parseLocalDate(v.start))/86400000)+1;
                 return `<div class="vac-entry">
                   <span class="vac-range">📅 ${v.start} → ${v.end}</span>
                   <span class="vac-days">${days} días</span>
-                  ${APP.isAdmin ? `<button class="btn-del" onclick="deleteVacation(${u.id}, ${i})">✕</button>` : ''}
+                  ${APP.isAdmin ? `<button class="btn-del" onclick="deleteVacation(${u.id},${i})">✕</button>` : ''}
                 </div>`;
-              }).join('')
-          }
+              }).join('')}
         </div>
       </div>`;
   }).join('');
@@ -522,7 +538,7 @@ function renderVacationsView() {
       <p class="view-sub">Registro y validación de periodos vacacionales 2026</p>
     </div>
     <div class="info-banner">
-      ⚠ <strong>Restricción 2026:</strong> Vacaciones a partir del <strong>15 de julio</strong> deben ser semanas íntegras de lunes a domingo (mínimo 7 días, múltiplos de 7).
+      ⚠ <strong>Restricción 2026:</strong> Vacaciones desde el <strong>15 de julio</strong> deben ser semanas completas (lun–dom, mínimo 7 días).
     </div>
     <div class="vac-users-list">${rows}</div>
     <div id="modal-add-vac" class="modal hidden">
@@ -552,23 +568,18 @@ window.saveVacation = function(userId) {
   const endStr   = document.getElementById('vac-end').value;
   const msgEl    = document.getElementById('vac-validation-msg');
   const result   = window.validateVacationRequest(startStr, endStr, userId, APP.vacations);
-  if (!result.valid) {
-    msgEl.textContent = result.message;
-    msgEl.className   = 'vac-msg error visible';
-    return;
-  }
+  if (!result.valid) { msgEl.textContent = result.message; msgEl.className = 'vac-msg error visible'; return; }
   if (!APP.vacations[userId]) APP.vacations[userId] = [];
   APP.vacations[userId].push({ start: startStr, end: endStr });
-  APP.vacations[userId].sort((a, b) => a.start.localeCompare(b.start));
+  APP.vacations[userId].sort((a,b) => a.start.localeCompare(b.start));
   window.saveVacationsLocal(APP.vacations);
   window.appendAuditEntry('ADD_VACATION', `${startStr}→${endStr}`, '-', userId, APP.users.find(u=>u.id===userId)?.name, 'Admin');
-  closeAddVacModal();
-  renderApp();
-  window.showToast(`Vacaciones añadidas correctamente.`, 'success');
+  closeAddVacModal(); renderApp();
+  window.showToast('Vacaciones añadidas correctamente.', 'success');
 };
 
 window.deleteVacation = function(userId, index) {
-  if (!confirm('¿Eliminar este periodo vacacional?')) return;
+  if (!confirm('¿Eliminar este periodo?')) return;
   APP.vacations[userId].splice(index, 1);
   window.saveVacationsLocal(APP.vacations);
   renderApp();
@@ -580,83 +591,61 @@ function renderReportView() {
   const equity  = window.generateEquityReport(APP.users, APP.schedule, APP.vacations, APP.holidays);
   const monthly = window.generateMonthlySummary(APP.schedule, APP.users, APP.holidays, 2026);
 
-  const eRows = equity.map(m => `
-    <tr>
-      <td>${m.name}</td>
-      <td class="num">${m.morningDays}</td>
-      <td class="num">${m.afternoonDays}</td>
-      <td class="num">${m.vacationDays}</td>
-      <td class="num">${m.totalWorked}</td>
-      <td class="num"><div class="score-bar-wrap"><div class="score-bar" style="width:${m.equityScore}%"></div><span>${m.equityScore}%</span></div></td>
-    </tr>`).join('');
+  const eRows = equity.map(m => `<tr>
+    <td>${m.name}</td>
+    <td class="num">${m.morningDays}</td><td class="num">${m.afternoonDays}</td>
+    <td class="num">${m.vacationDays}</td><td class="num">${m.totalWorked}</td>
+    <td class="num"><div class="score-bar-wrap"><div class="score-bar" style="width:${m.equityScore}%"></div><span>${m.equityScore}%</span></div></td>
+  </tr>`).join('');
 
-  const mRows = monthly.map(m => `
-    <tr>
-      <td>${m.month}</td>
-      <td class="num">${m.totalDays}</td>
-      <td class="num">${m.closedDays}</td>
-      <td class="num ${m.understaffedDays > 0 ? 'warn' : ''}">${m.understaffedDays}</td>
-      <td class="num">${m.avgMorningCoverage}</td>
-      <td class="num">${m.avgAfternoonCoverage}</td>
-    </tr>`).join('');
+  const mRows = monthly.map(m => `<tr>
+    <td>${m.month}</td><td class="num">${m.totalDays}</td><td class="num">${m.closedDays}</td>
+    <td class="num ${m.understaffedDays>0?'warn':''}">${m.understaffedDays}</td>
+    <td class="num">${m.avgMorningCoverage}</td><td class="num">${m.avgAfternoonCoverage}</td>
+  </tr>`).join('');
 
   return `
-    <div class="view-header">
-      <h1 class="view-title">Informes y Auditoría</h1>
-      <p class="view-sub">Métricas de equidad anual y trazabilidad de cambios</p>
-    </div>
+    <div class="view-header"><h1 class="view-title">Informes y Auditoría</h1><p class="view-sub">Métricas de equidad anual y trazabilidad</p></div>
     <div class="toolbar">
       <button class="btn-primary" onclick="window.exportEquityReportCSV(APP.users,APP.schedule,APP.vacations,APP.holidays)">⬇ Exportar Equidad CSV</button>
       <button class="btn-secondary" onclick="window.exportScheduleCSV(APP.schedule,APP.users)">⬇ Exportar Cuadrante CSV</button>
     </div>
     <section class="section-card">
       <h2 class="section-title">Equidad por Técnico</h2>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Técnico</th><th>Días Mañana</th><th>Días Tarde</th><th>Vacaciones</th><th>Total Trabajado</th><th>Score Equidad</th></tr></thead>
-          <tbody>${eRows || '<tr><td colspan="6" class="empty-row">Sin datos.</td></tr>'}</tbody>
-        </table>
-      </div>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Técnico</th><th>Días Mañana</th><th>Días Tarde</th><th>Vacaciones</th><th>Total Trabajado</th><th>Score Equidad</th></tr></thead>
+        <tbody>${eRows||'<tr><td colspan="6" class="empty-row">Sin datos.</td></tr>'}</tbody>
+      </table></div>
     </section>
     <section class="section-card">
       <h2 class="section-title">Resumen Mensual</h2>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Mes</th><th>Días</th><th>Cierres</th><th>Baja Cobertura</th><th>Cobertura Mañana</th><th>Cobertura Tarde</th></tr></thead>
-          <tbody>${mRows}</tbody>
-        </table>
-      </div>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Mes</th><th>Días</th><th>Cierres</th><th>Baja Cobertura</th><th>Cob. Mañana</th><th>Cob. Tarde</th></tr></thead>
+        <tbody>${mRows}</tbody>
+      </table></div>
     </section>
     <section class="section-card">
       <h2 class="section-title">Log de Auditoría</h2>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>Timestamp</th><th>Acción</th><th>Fecha/Rango</th><th>Técnico</th><th>Por</th></tr></thead>
-          <tbody>
-            ${APP.auditTrail.slice(-20).reverse().map(e => `
-              <tr>
-                <td class="mono">${e.timestamp.replace('T',' ').slice(0,19)}</td>
-                <td><span class="audit-tag">${e.action}</span></td>
-                <td class="mono">${e.date||'-'}</td>
-                <td>${e.userName||'-'}</td>
-                <td>${e.performedBy||'-'}</td>
-              </tr>`).join('') || '<tr><td colspan="5" class="empty-row">Sin registros.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Timestamp</th><th>Acción</th><th>Fecha/Rango</th><th>Técnico</th><th>Por</th></tr></thead>
+        <tbody>
+          ${APP.auditTrail.slice(-20).reverse().map(e=>`<tr>
+            <td class="mono">${e.timestamp.replace('T',' ').slice(0,19)}</td>
+            <td><span class="audit-tag">${e.action}</span></td>
+            <td class="mono">${e.date||'-'}</td><td>${e.userName||'-'}</td><td>${e.performedBy||'-'}</td>
+          </tr>`).join('')||'<tr><td colspan="5" class="empty-row">Sin registros.</td></tr>'}
+        </tbody>
+      </table></div>
     </section>`;
 }
 
 // ─── SETTINGS VIEW ───────────────────────────────────────────
 function renderSettingsView() {
   return `
-    <div class="view-header">
-      <h1 class="view-title">Configuración y Datos</h1>
-      <p class="view-sub">Backup, restauración y ajustes del sistema</p>
-    </div>
+    <div class="view-header"><h1 class="view-title">Configuración y Datos</h1><p class="view-sub">Backup, restauración y ajustes del sistema</p></div>
     <section class="section-card">
       <h2 class="section-title">Backup de Datos</h2>
-      <p class="section-desc">Exporta o restaura los datos operativos (cuadrante y vacaciones). La configuración y credenciales nunca se almacenan localmente.</p>
+      <p class="section-desc">Exporta o restaura los datos operativos. Las credenciales nunca se almacenan localmente.</p>
       <div class="toolbar">
         <button class="btn-primary" onclick="window.exportBackup()">⬇ Exportar Backup JSON</button>
         <label class="btn-secondary file-btn">⬆ Importar Backup<input type="file" accept=".json" onchange="handleImportBackup(event)" style="display:none"></label>
@@ -673,7 +662,7 @@ function renderSettingsView() {
     </section>
     <section class="section-card danger-zone">
       <h2 class="section-title">⚠ Zona de Peligro</h2>
-      <p class="section-desc">Elimina todos los datos locales del navegador de forma permanente.</p>
+      <p class="section-desc">Elimina todos los datos locales permanentemente.</p>
       <button class="btn-danger" onclick="confirmClearData()">🗑 Borrar Todos los Datos Locales</button>
     </section>
     <section class="section-card">
@@ -685,23 +674,21 @@ function renderSettingsView() {
     </section>`;
 }
 
-window.handleImportBackup = function(event) {
-  const file = event.target.files[0];
-  window.importBackup(file, function(schedule, vacations) {
+window.handleImportBackup = function(e) {
+  window.importBackup(e.target.files[0], function(schedule, vacations) {
     APP.schedule = schedule; APP.vacations = vacations; renderApp();
   });
 };
 window.confirmClearData = function() {
   if (confirm('⚠ ¿Eliminar TODOS los datos locales?')) {
-    window.clearAllLocalData(); APP.schedule = {}; APP.vacations = {}; APP.auditTrail = []; renderApp();
+    window.clearAllLocalData(); APP.schedule={}; APP.vacations={}; APP.auditTrail=[]; renderApp();
   }
 };
 
 // ─── ADMIN ───────────────────────────────────────────────────
-// Antídoto #4: window scoping. Antídoto #5: sin doble disparo.
 window.toggleAdminMode = function() {
   if (APP.isAdmin) {
-    APP.isAdmin = false; updateAdminUI();
+    APP.isAdmin = false; updateAdminUI(); renderApp();
     window.showToast('Sesión de administrador cerrada.', 'info'); return;
   }
   document.getElementById('modal-admin').classList.remove('hidden');
@@ -717,7 +704,7 @@ window.toggleAdminMode = function() {
 async function handleAdminKeydown(e) {
   if (e.key === 'Enter') {
     const val = e.target.value.trim();
-    if (!val) return; // Antídoto #5
+    if (!val) return;
     await submitAdminPassword();
   }
 }
@@ -731,9 +718,8 @@ window.submitAdminPassword = async function() {
   if (hash === APP.config.adminHash) {
     APP.isAdmin = true;
     document.getElementById('modal-admin').classList.add('hidden');
-    updateAdminUI();
+    updateAdminUI(); renderApp();
     window.showToast('✓ Acceso de administrador concedido.', 'success');
-    renderApp();
   } else {
     window.showToast('❌ Contraseña incorrecta.', 'error');
     document.getElementById('admin-error-msg').classList.remove('hidden');
