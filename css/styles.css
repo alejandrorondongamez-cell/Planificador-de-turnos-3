@@ -3,7 +3,7 @@
    Sistema de diseño premium: dark industrial / precision grid
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;1,300&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
 
 /* ─── Variables ──────────────────────────────────────────────── */
 :root {
@@ -32,8 +32,8 @@
   --radius-lg:    14px;
   --shadow:       0 4px 24px rgba(0,0,0,.5);
   --shadow-sm:    0 2px 8px rgba(0,0,0,.35);
-  --font-ui:      'Syne', sans-serif;
-  --font-mono:    'DM Mono', monospace;
+  --font-ui:      'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', monospace;
   --sidebar-w:    240px;
   --header-h:     56px;
   --transition:   all .2s cubic-bezier(.4,0,.2,1);
@@ -84,10 +84,12 @@ body {
 }
 
 .logo-mark {
-  font-size: 1.45rem;
-  font-weight: 800;
-  letter-spacing: -.5px;
+  font-size: .9rem;
+  font-weight: 600;
+  letter-spacing: .02em;
   color: var(--text);
+  line-height: 1.3;
+  text-transform: uppercase;
 }
 .logo-mark span { color: var(--accent); }
 
@@ -111,13 +113,13 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
+  padding: 8px 12px;
   border-radius: var(--radius);
   cursor: pointer;
   color: var(--text-muted);
-  font-size: .88rem;
-  font-weight: 600;
-  letter-spacing: .01em;
+  font-size: .82rem;
+  font-weight: 500;
+  letter-spacing: .02em;
   border: none;
   background: none;
   width: 100%;
@@ -205,9 +207,10 @@ body {
 }
 
 .view-title {
-  font-size: 1.7rem;
-  font-weight: 800;
-  letter-spacing: -.4px;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -.2px;
+  color: var(--text);
 }
 
 .view-sub {
@@ -225,11 +228,11 @@ body {
   padding: 8px 18px;
   border-radius: var(--radius);
   font-family: var(--font-ui);
-  font-weight: 700;
-  font-size: .85rem;
+  font-weight: 500;
+  font-size: .82rem;
   cursor: pointer;
   transition: var(--transition);
-  letter-spacing: .02em;
+  letter-spacing: .03em;
 }
 .btn-primary:hover { filter: brightness(1.15); transform: translateY(-1px); box-shadow: 0 4px 16px var(--accent-glow); }
 
@@ -341,7 +344,7 @@ body {
 .stat-card.stat-warning { border-color: var(--orange); background: var(--orange-dim); }
 
 .stat-icon { font-size: 1.4rem; }
-.stat-value { font-size: 2rem; font-weight: 800; letter-spacing: -.5px; line-height: 1; }
+.stat-value { font-size: 1.7rem; font-weight: 600; letter-spacing: -.3px; line-height: 1; }
 .stat-label { font-size: .75rem; color: var(--text-muted); font-family: var(--font-mono); }
 
 /* ─── Section cards ──────────────────────────────────────────── */
@@ -354,10 +357,15 @@ body {
 }
 
 .section-title {
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: .95rem;
+  font-weight: 600;
   margin-bottom: 16px;
-  letter-spacing: -.2px;
+  letter-spacing: .01em;
+  color: var(--text);
+  text-transform: uppercase;
+  font-size: .75rem;
+  letter-spacing: .08em;
+  color: var(--text-muted);
 }
 
 .section-desc {
@@ -472,7 +480,7 @@ body {
 }
 
 .member-info { flex: 1; min-width: 0; }
-.member-name { font-weight: 700; font-size: .9rem; }
+.member-name { font-weight: 600; font-size: .88rem; }
 .member-profile { font-size: .72rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 6px; }
 
 .vac-bar-wrap {
@@ -514,10 +522,11 @@ body {
 }
 
 .month-label {
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: .9rem;
+  font-weight: 500;
   min-width: 160px;
   text-align: center;
+  letter-spacing: .02em;
 }
 
 .nav-arrow {
@@ -663,12 +672,13 @@ body {
 .data-table th {
   text-align: left;
   padding: 8px 12px;
-  font-size: .72rem;
+  font-size: .7rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  letter-spacing: .04em;
+  letter-spacing: .06em;
   border-bottom: 1px solid var(--border);
-  font-weight: 600;
+  font-weight: 500;
+  text-transform: uppercase;
 }
 
 .data-table td {
@@ -748,7 +758,7 @@ body {
   to   { opacity: 1; transform: none; }
 }
 
-.modal-title { font-size: 1.1rem; font-weight: 800; margin-bottom: 8px; }
+.modal-title { font-size: .95rem; font-weight: 600; margin-bottom: 8px; letter-spacing: .01em; }
 .modal-desc  { font-size: .85rem; color: var(--text-muted); margin-bottom: 16px; }
 
 .modal-actions {
@@ -866,10 +876,13 @@ body {
 }
 
 .loader-logo {
-  font-size: 2rem;
-  font-weight: 800;
-  letter-spacing: -.5px;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
   animation: pulse 1.4s ease infinite;
+  text-align: center;
+  max-width: 320px;
 }
 .loader-logo span { color: var(--accent); }
 
