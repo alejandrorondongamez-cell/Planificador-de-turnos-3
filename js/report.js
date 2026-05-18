@@ -123,7 +123,7 @@ window.generateMonthlySummary = function(schedule, users, holidays, year) {
  */
 window.exportEquityReportCSV = function(users, schedule, vacations, holidays) {
   const rows = window.generateEquityReport(users, schedule, vacations, holidays);
-  window.exportToCSV(rows, 'informe_equidad_aequitas');
+  window.exportToCSV(rows, 'informe_equidad_planturnos');
   window.showToast('Informe de equidad exportado correctamente.', 'success');
 };
 
@@ -153,6 +153,6 @@ window.exportScheduleCSV = function(schedule, users) {
     });
   });
 
-  window.exportToCSV(rows, 'cuadrante_aequitas');
+  window.exportToCSV(rows, 'cuadrante_planturnos');
   window.showToast('Cuadrante exportado correctamente.', 'success');
 };

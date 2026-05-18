@@ -5,9 +5,9 @@
 // ============================================================
 
 const STORAGE_KEYS = {
-  SCHEDULE:    'aequitas_schedule_2026',
-  VACATIONS:   'aequitas_vacations_2026',
-  AUDIT_TRAIL: 'aequitas_audit_2026'
+  SCHEDULE:    'planturnos_schedule_2026',
+  VACATIONS:   'planturnos_vacations_2026',
+  AUDIT_TRAIL: 'planturnos_audit_2026'
 };
 
 /**
@@ -103,7 +103,7 @@ window.exportBackup = function() {
     vacations:  window.loadVacationsLocal(),
     auditTrail: window.loadAuditTrail()
   };
-  window.exportToJSON(backup, 'backup_aequitas_wfm');
+  window.exportToJSON(backup, 'backup_planificador_turnos');
   window.showToast('Backup exportado correctamente.', 'success');
 };
 

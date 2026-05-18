@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     renderApp();
     setupNavigation();
     showLoadingOverlay(false);
-    window.showToast('Aequitas WFM cargado correctamente.', 'success', 2500);
+    window.showToast('Planificador de Turnos cargado correctamente.', 'success', 2500);
   } catch (err) {
     showLoadingOverlay(false);
     document.getElementById('app-root').innerHTML =
@@ -685,7 +685,7 @@ function renderSettingsView() {
     <section class="section-card">
       <h2 class="section-title">Acerca de</h2>
       <div class="about-info">
-        <p><strong>Aequitas WFM</strong> v${APP.config?.version || '2.0.0'}</p>
+        <p><strong>Planificador de Turnos</strong> v${APP.config?.version || '2.0.0'}</p>
         <p>Controlador de Cuadrantes e Inteligencia de Turnos IT</p>
         <p>Alicante · Operativo 2026 · Sin backend · GitHub Pages</p>
       </div>
