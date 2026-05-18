@@ -1,6 +1,10 @@
 {
-  "global": [
+  "closure": [
     { "date": "2026-01-01", "name": "Año Nuevo" },
+    { "date": "2026-12-25", "name": "Navidad" }
+  ],
+  "national": [
+    { "date": "2026-01-06", "name": "Reyes Magos" },
     { "date": "2026-04-02", "name": "Jueves Santo" },
     { "date": "2026-04-03", "name": "Viernes Santo" },
     { "date": "2026-05-01", "name": "Día del Trabajador" },
@@ -8,20 +12,11 @@
     { "date": "2026-10-12", "name": "Fiesta Nacional de España" },
     { "date": "2026-11-01", "name": "Todos los Santos" },
     { "date": "2026-12-06", "name": "Día de la Constitución" },
-    { "date": "2026-12-08", "name": "Inmaculada Concepción" },
-    { "date": "2026-12-25", "name": "Navidad" }
-  ],
-  "legal": [
-    { "date": "2026-01-06", "name": "Reyes Magos" },
-    { "date": "2026-04-05", "name": "Domingo de Resurrección" }
-  ],
-  "madrid": [
-    { "date": "2026-03-19", "name": "San José (Madrid)" },
-    { "date": "2026-05-02", "name": "Día de la Comunidad de Madrid" },
-    { "date": "2026-07-25", "name": "Santiago Apóstol" }
+    { "date": "2026-12-08", "name": "Inmaculada Concepción" }
   ],
   "alicante": [
     { "date": "2026-06-24", "name": "San Juan (Hogueras de Alicante)" },
+    { "date": "2026-10-09", "name": "Día de la Comunitat Valenciana" },
     { "date": "2026-12-26", "name": "San Esteban (Alicante)" }
   ]
 }
