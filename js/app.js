@@ -95,13 +95,36 @@ function userName(id) {
   return u ? u.name : String(id);
 }
 
-// Primer nombre + primera letra del apellido: "Alejandro G."
+// Nombre corto inteligente: desambigua si hay varios con el mismo primer nombre.
+// Añade iniciales de apellidos hasta que sea único en el equipo.
 function shortName(id) {
   const u = APP.users.find(u => u.id === id);
   if (!u) return String(id);
   const parts = u.name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0];
-  return parts[0] + ' ' + parts[1][0] + '.';
+  const first = parts[0];
+
+  // ¿Cuántos compañeros comparten el mismo primer nombre?
+  const sameFirst = APP.users.filter(x => x.name.trim().split(/\s+/)[0] === first);
+  if (sameFirst.length === 1) {
+    // Único: nombre + inicial primer apellido
+    return parts.length >= 2 ? `${first} ${parts[1][0]}.` : first;
+  }
+
+  // Hay colisión de primer nombre → añadir iniciales de apellidos hasta distinguir
+  // Intentar con 1 inicial, luego 2, etc.
+  for (let depth = 1; depth < parts.length; depth++) {
+    const initSuffix = parts.slice(1, depth + 1).map(p => p[0] + '.').join('');
+    const candidate  = `${first} ${initSuffix}`;
+    // ¿Otro usuario produciría el mismo candidate?
+    const conflict = sameFirst.filter(x => {
+      const xp = x.name.trim().split(/\s+/);
+      const xs  = xp.slice(1, depth + 1).map(p => p[0] + '.').join('');
+      return `${xp[0]} ${xs}` === candidate && x.id !== id;
+    });
+    if (conflict.length === 0) return candidate;
+  }
+  // Como último recurso devolver nombre completo
+  return u.name;
 }
 
 function initials(name) {
@@ -405,9 +428,12 @@ function renderCalendar(year, month) {
   return html;
 }
 
-// ── Generator: solo admin ──
+// ── Generator: solo admin, doble protección ──
 window.openGeneratorRangeModal = function() {
-  if (!APP.isAdmin) { window.showToast('Requiere modo Administrador.', 'warning'); return; }
+  if (!APP.isAdmin) {
+    window.showToast('🔒 Requiere modo Administrador para generar cuadrantes.', 'warning');
+    return;
+  }
   document.getElementById('modal-generator').classList.remove('hidden');
 };
 window.closeGeneratorModal = function() {
@@ -415,7 +441,11 @@ window.closeGeneratorModal = function() {
 };
 
 window.executeAutoGenerate = function() {
-  if (!APP.isAdmin) { window.showToast('Requiere modo Administrador.', 'warning'); return; }
+  // Doble guard: comprueba isAdmin tanto aquí como en el modal
+  if (!APP.isAdmin) {
+    window.showToast('🔒 Acceso denegado. Requiere modo Administrador.', 'error');
+    return;
+  }
   const startStr  = document.getElementById('gen-start').value;
   const endStr    = document.getElementById('gen-end').value;
   const overwrite = document.getElementById('gen-overwrite').checked;
@@ -688,8 +718,11 @@ window.confirmClearData = function() {
 // ─── ADMIN ───────────────────────────────────────────────────
 window.toggleAdminMode = function() {
   if (APP.isAdmin) {
-    APP.isAdmin = false; updateAdminUI(); renderApp();
-    window.showToast('Sesión de administrador cerrada.', 'info'); return;
+    APP.isAdmin = false;
+    updateAdminUI();
+    renderApp(); // re-renderiza la vista actual para actualizar botón generar
+    window.showToast('Sesión de administrador cerrada.', 'info');
+    return;
   }
   document.getElementById('modal-admin').classList.remove('hidden');
   const input = document.getElementById('admin-password-input');
