@@ -487,7 +487,7 @@ function renderVacationsView() {
       <p class="view-sub">Registro y validación de periodos vacacionales 2026</p>
     </div>
     <div class="info-banner">
-      ⚠ <strong>Restricción 2026:</strong> Vacaciones desde el <strong>15 de julio</strong> deben ser semanas completas de lun–dom (mínimo 7 días, múltiplos de 7).
+      ℹ️ <strong>Recomendación 2026:</strong> Para vacaciones desde el <strong>15 de julio</strong> se recomienda usar semanas completas (lun–dom, mínimo 7 días). Si el periodo no cumple esta recomendación, el sistema pedirá confirmación antes de guardar.
       ${!APP.isAdmin ? '<br><span style="opacity:.7">Activa el modo Administrador para añadir o eliminar periodos.</span>' : ''}
     </div>
     <div class="vac-users-list">${rows}</div>
@@ -539,13 +539,23 @@ window.saveVacation = function(userId) {
   const endStr   = endEl.value;
 
   const result = window.validateVacationRequest(startStr, endStr, userId, APP.vacations);
+
+  // Error duro: mostrar mensaje en el modal, no guardar
   if (!result.valid) {
-    msgEl.textContent = result.message;
+    msgEl.textContent   = result.message;
     msgEl.style.display = 'block';
     return;
   }
-  msgEl.style.display = 'none';
 
+  // Aviso suave: pedir confirmación fuera del modal
+  if (result.warn) {
+    msgEl.style.display = 'none';
+    if (!confirm(result.message)) return; // usuario cancela → no guardar
+  } else {
+    msgEl.style.display = 'none';
+  }
+
+  // Guardar
   if (!APP.vacations[userId]) APP.vacations[userId] = [];
   APP.vacations[userId].push({ start: startStr, end: endStr });
   APP.vacations[userId].sort((a, b) => a.start.localeCompare(b.start));

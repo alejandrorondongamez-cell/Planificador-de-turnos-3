@@ -1,53 +1,55 @@
 // ============================================================
-// rules.js — Aequitas WFM
+// rules.js — Planificador de Turnos
 // Validador de restricciones legales y alertas de cobertura
 // ============================================================
 
 /**
- * Valida las restricciones de un periodo vacacional antes de guardarlo.
- * Antídoto #3 aplicado: usamos parseLocalDate internamente.
- * @returns { valid: boolean, message: string }
+ * Valida un periodo vacacional.
+ * Devuelve:
+ *   { valid: false, warn: false, message }  → error duro, no se puede guardar
+ *   { valid: true,  warn: true,  message }  → aviso suave, pedir confirmación
+ *   { valid: true,  warn: false, message }  → todo correcto
  */
 window.validateVacationRequest = function(startStr, endStr, userId, existingVacations) {
   if (!startStr || !endStr) {
-    return { valid: false, message: 'Debes indicar fecha de inicio y fin.' };
+    return { valid: false, warn: false, message: 'Debes indicar fecha de inicio y fin.' };
   }
 
   const start = window.parseLocalDate(startStr);
   const end   = window.parseLocalDate(endStr);
 
   if (end < start) {
-    return { valid: false, message: 'La fecha de fin debe ser igual o posterior a la de inicio.' };
+    return { valid: false, warn: false, message: 'La fecha de fin debe ser igual o posterior a la de inicio.' };
   }
 
-  // ─── Regla crítica 2026 ──────────────────────────────────────
-  // Si inicio >= 15 de julio de 2026 → solo semanas íntegras (múltiplos de 7)
-  const cutoff = new Date(2026, 6, 15, 0, 0, 0, 0); // 15 julio 2026
+  // ─── Regla 2026: AVISO (no bloqueo) si inicio >= 15 julio ───
+  // Se recomienda semana íntegra lun–dom (≥7 días, múltiplo de 7).
+  // Si no cumple → valid:true, warn:true → la UI pide confirmación.
+  const cutoff = new Date(2026, 6, 15, 0, 0, 0, 0);
   if (start >= cutoff) {
-    const diffMs   = end.getTime() - start.getTime();
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
+    const diffDays = Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    const issues   = [];
 
     if (start.getDay() !== 1) {
-      return {
-        valid: false,
-        message: `⚠️ Restricción 2026: Para vacaciones a partir del 15 de julio, el periodo debe comenzar en LUNES. Fecha seleccionada: ${window.dayNameFull(start.getDay())}.`
-      };
+      issues.push(`no empieza en lunes (empieza en ${window.dayNameFull(start.getDay())})`);
     }
     if (end.getDay() !== 0) {
-      return {
-        valid: false,
-        message: `⚠️ Restricción 2026: Para vacaciones a partir del 15 de julio, el periodo debe terminar en DOMINGO. Fecha seleccionada: ${window.dayNameFull(end.getDay())}.`
-      };
+      issues.push(`no termina en domingo (termina en ${window.dayNameFull(end.getDay())})`);
     }
     if (diffDays < 7 || diffDays % 7 !== 0) {
+      issues.push(`duración de ${diffDays} día${diffDays===1?'':'s'} (se recomiendan múltiplos de 7)`);
+    }
+
+    if (issues.length > 0) {
       return {
-        valid: false,
-        message: `⚠️ Restricción 2026: Las vacaciones a partir del 15 de julio deben ser semanas completas (mínimo 7 días, múltiplo de 7). Días seleccionados: ${diffDays}.`
+        valid:   true,
+        warn:    true,
+        message: `⚠️ Recomendación 2026\n\nPara vacaciones a partir del 15 de julio se recomiendan semanas íntegras (lun–dom, mínimo 7 días).\n\nEste periodo no cumple: ${issues.join('; ')}.\n\n¿Deseas guardarlo igualmente?`
       };
     }
   }
 
-  // ─── Solapamiento con otras vacaciones del mismo técnico ─────
+  // ─── Solapamiento con vacaciones existentes ──────────────────
   if (existingVacations && existingVacations[userId]) {
     for (const v of existingVacations[userId]) {
       const vs = window.parseLocalDate(v.start);
@@ -55,13 +57,14 @@ window.validateVacationRequest = function(startStr, endStr, userId, existingVaca
       if (window.rangesOverlap(start, end, vs, ve)) {
         return {
           valid: false,
+          warn:  false,
           message: `❌ El periodo solicitado se solapa con unas vacaciones ya registradas (${v.start} → ${v.end}).`
         };
       }
     }
   }
 
-  return { valid: true, message: 'Periodo vacacional válido.' };
+  return { valid: true, warn: false, message: 'Periodo vacacional válido.' };
 };
 
 /**
@@ -80,7 +83,6 @@ window.isOnVacation = function(userId, dateStr, vacations) {
 
 /**
  * Verifica si una fecha es festivo de cierre total.
- * Delega en el scheduler que tiene la lógica de tipos.
  */
 window.isGlobalHoliday = function(dateStr, holidays) {
   if (!holidays || !holidays.closure) return false;
@@ -88,7 +90,7 @@ window.isGlobalHoliday = function(dateStr, holidays) {
 };
 
 /**
- * Obtiene el nombre de un festivo para una fecha dada (cualquier categoría).
+ * Nombre de un festivo para cualquier categoría.
  */
 window.getHolidayName = function(dateStr, holidays) {
   if (!holidays) return null;
@@ -102,36 +104,28 @@ window.getHolidayName = function(dateStr, holidays) {
 };
 
 /**
- * Calcula la cobertura de un día dado el schedule y devuelve alertas.
- * @returns { morning: number, afternoon: number, warnings: string[] }
+ * Cobertura de un día.
  */
-window.getDayCoverage = function(dateStr, schedule, users, vacations) {
-  if (!schedule[dateStr]) {
-    return { morning: 0, afternoon: 0, warnings: ['Sin datos de cuadrante para este día.'] };
-  }
-  const day = schedule[dateStr];
+window.getDayCoverage = function(dateStr, schedule) {
+  if (!schedule[dateStr]) return { morning: 0, afternoon: 0, warnings: ['Sin datos.'] };
+  const day  = schedule[dateStr];
   const warnings = [];
-  const morningCount   = (day.morning   || []).length;
-  const afternoonCount = (day.afternoon || []).length;
-
-  if (morningCount < 2) {
-    warnings.push(`Cobertura mañana insuficiente: ${morningCount}/2 técnicos.`);
-  }
-  if (afternoonCount < 2) {
-    warnings.push(`Cobertura tarde insuficiente: ${afternoonCount}/2 técnicos.`);
-  }
-  return { morning: morningCount, afternoon: afternoonCount, warnings };
+  const mc = (day.morning   || []).length;
+  const ac = (day.afternoon || []).length;
+  if (mc < 2) warnings.push(`Cobertura mañana insuficiente: ${mc}/2.`);
+  if (ac < 2) warnings.push(`Cobertura tarde insuficiente: ${ac}/2.`);
+  return { morning: mc, afternoon: ac, warnings };
 };
 
 /**
- * Calcula días de vacaciones ya consumidos por un técnico en el año.
+ * Días de vacaciones usados por un técnico.
  */
 window.getVacationDaysUsed = function(userId, vacations) {
   if (!vacations || !vacations[userId]) return 0;
   let total = 0;
   for (const v of vacations[userId]) {
-    const s = window.parseLocalDate(v.start);
-    const e = window.parseLocalDate(v.end);
+    const s    = window.parseLocalDate(v.start);
+    const e    = window.parseLocalDate(v.end);
     const diff = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
     total += diff;
   }
@@ -139,22 +133,16 @@ window.getVacationDaysUsed = function(userId, vacations) {
 };
 
 /**
- * Valida todo el equipo y devuelve un informe de restricciones.
+ * Validación global del equipo.
  */
-window.validateFullTeam = function(users, vacations, schedule, holidays) {
+window.validateFullTeam = function(users, vacations) {
   const issues = [];
-
   users.forEach(u => {
     const used = window.getVacationDaysUsed(u.id, vacations);
     if (used > u.vacationDaysTotal) {
-      issues.push({
-        type: 'vacation_exceeded',
-        userId: u.id,
-        name: u.name,
-        message: `${u.name} tiene ${used} días de vacaciones asignados, pero solo le corresponden ${u.vacationDaysTotal}.`
-      });
+      issues.push({ userId: u.id, name: u.name,
+        message: `${u.name}: ${used} días asignados, máximo ${u.vacationDaysTotal}.` });
     }
   });
-
   return issues;
 };
