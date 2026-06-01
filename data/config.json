@@ -13,8 +13,8 @@
     "seniorStandardBonus": 5,
     "vacationEquityWeight": 3
   },
-  "adminHash": "8ccae993cfc1e821dea39a46838d635db74eecacd7f72ca77d3ae196219376b9",
-  "version": "2.0.0",
+  "adminHash": "64535eae042bd308cc01e23125abfe7c05e2fe6b28b400b342c8d65105278171",
+  "version": "2.1.0",
   "appName": "Planificador de Turnos",
   "year": 2026
 }
